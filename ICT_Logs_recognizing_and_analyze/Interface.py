@@ -139,8 +139,6 @@ processing_instance = Processing()
 
 def show_info_box():
         info_text = (
-            "Software made by Mateusz Sowul.\n"
-            "All Rights reserved.\n"
             "Guide:\n"
             "\n"
             "1. Choose input folder with raw data and convert it into proper form by using button 'Execute processing' or select folder with already processed data and select checkbox ' data already prcessed '.\n"
