@@ -112,6 +112,8 @@ def run_in_thread(filespath):
     thread.start()
 
 
+
+
 def run_in_thread_plotting(folderpath,elementname):
     if continue_animation:
         sg.popup_ok('Another process is running, wait for it to finish!',title="Attention!", keep_on_top=True)
