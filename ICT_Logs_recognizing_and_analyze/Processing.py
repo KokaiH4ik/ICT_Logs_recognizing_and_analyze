@@ -1,4 +1,6 @@
-﻿from tkinter import filedialog, messagebox
+﻿#from curses.ascii import isdigit
+from itertools import filterfalse
+from tkinter import filedialog, messagebox
 from datetime import datetime
 import os
 import re
@@ -41,6 +43,9 @@ class Processing:
         elements_crossing_limits = []
         prediction_images = []
         quantity_of_pictures=0
+        lower_limit_crossed=False
+        upper_limit_crossed=False
+        
 
         for element_name, data in element_data.items():
             measured_values = np.array(data['measured_values'])
@@ -58,9 +63,10 @@ class Processing:
 
             prediction_range = np.arange(0, prediction_vector)
             predicted_values = model.predict(prediction_range.reshape(-1, 1))
-
-            lower_limit_crossed = any(predicted_values < data['lower_limits'][0])
-            upper_limit_crossed = any(predicted_values > data['upper_limits'][0])
+            if data['lower_limits'][0] != 'NONE':
+                lower_limit_crossed = any(predicted_values < data['lower_limits'][0])
+            if data['upper_limits'][0] != 'NONE':
+                upper_limit_crossed = any(predicted_values > data['upper_limits'][0])
 
             if lower_limit_crossed or upper_limit_crossed:
                 elements_crossing_limits.append(element_name)
@@ -75,9 +81,10 @@ class Processing:
 
                 lower_limits_extended = np.full(len(limit_range), data['lower_limits'][0])
                 upper_limits_extended = np.full(len(limit_range), data['upper_limits'][0])
-
-                plt.plot(limit_range, lower_limits_extended, linestyle='--', label='Lower Limit')
-                plt.plot(limit_range, upper_limits_extended, linestyle='--', label='Upper Limit')
+                if data['lower_limits'][0] != 'NONE':
+                    plt.plot(limit_range, lower_limits_extended, linestyle='--', label='Lower Limit')
+                if data['upper_limits'][0] != 'NONE':
+                    plt.plot(limit_range, upper_limits_extended, linestyle='--', label='Upper Limit')
 
                 plt.xlabel("Sample number", fontsize="10",fontfamily="Arial")
                 plt.ylabel(self.get_y_axis_label(element_name),fontsize="7",fontfamily="Arial")
@@ -128,14 +135,12 @@ class Processing:
                 with open(file_path, 'r') as file:
                     for line in file:
                         parts = line.split()
-                        if len(parts) >= 5 and all(
-                                part.replace('.', '').replace('-', '').isdigit() or part == 'None' for part in
-                                parts[2:]):
+                        if len(parts) >= 5 and all(part.replace('.', '').replace('-', '').isdigit() or part == 'NONE' for part in parts[2:]):
                             element_name = parts[1]
                             element_data[element_name]['names'].append(filename)
                             element_data[element_name]['measured_values'].append(float(parts[2]))
-                            element_data[element_name]['lower_limits'].append(float(parts[3]) if parts[3] != 'None' else None)
-                            element_data[element_name]['upper_limits'].append(float(parts[4]) if parts[4] != 'None' else None)
+                            element_data[element_name]['lower_limits'].append(float(parts[3]) if parts[3] != 'NONE' else 'NONE')
+                            element_data[element_name]['upper_limits'].append(float(parts[4]) if parts[4] != 'NONE' else 'NONE')
 
         return element_data
 
@@ -156,6 +161,7 @@ class Processing:
                 current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_file_name = f"{current_datetime}.txt"
                 output_file_path = os.path.join(output_folder_path, output_file_name)
+                
 
                 with open(input_file_path, 'r') as f:
                     prefixes = ("R", "C", "L", "Q", "P", "I", "V","B")
@@ -165,10 +171,25 @@ class Processing:
                         for eachLine in f.readlines():
                             if "=" in eachLine:
                                 if eachLine.startswith(prefixes):
-                                    updated_line = re.sub(r'(\d*\.\d+|\d+)([UPK]|MEG|N|M)', self.replace_prefix,
-                                                          eachLine.strip())
+                                    updated_line = re.sub(r'(\d*\.\d+|\d+)([UPK]|MEG|N|M)', self.replace_prefix,eachLine.strip())
+                                    pattern = r'(\w+=\d+\.\d+)\(([^,)]*)(,|\))([^)]*)\)(\w)'
+                                    match = re.match(pattern, updated_line)
+                                    if match:
+                                       var_name = match.group(1)
+                                       value1 = match.group(2)
+                                       value2 = match.group(4)
+                                       if not value1:
+                                            value1 = "NONE"
+                                       if not value2:
+                                            value2 = "NONE"
+                                       updated_line=f"{var_name}({value1},{value2}){match.group(5)}"
                                     var = re.split(r"[=(,)]", updated_line)
                                     var = ' '.join(var).split()
+                                    for i in range(len(var)):
+                                        if 'E+' in var[i]:
+                                            var[i] = str(float(var[i]))
+                                        elif 'E-' in var[i]:
+                                            var[i] = str(float(var[i]))
                                     var.pop()
                                     length = len(var)
                                     if length >= 3:
@@ -215,18 +236,18 @@ class Processing:
                     element_found = False
                     for line in file:
                         parts = line.split()
-                        if len(parts) >= 4 and all(part.replace('.', '').replace('-', '').isdigit() or part == 'None' for part in parts[2:]):
+                        if len(parts) >= 4 and all(part.replace('.', '').replace('-', '').replace('NONE', '').isdigit() or part == 'None' or part == 'NONE' for part in parts[2:]):
                             current_element_name = parts[1]
                             if current_element_name == element_name:
                                 element_found = True
                                 element_data[current_element_name]['names'].append(filename)
                                 element_data[current_element_name]['measured_values'].append(float(parts[2]))
                                 if len(parts) == 5:  # Jeśli są 5 części, to oznacza, że mamy oba limity
-                                    element_data[current_element_name]['lower_limits'].append(float(parts[3]) if parts[3] != 'None' else None)
-                                    element_data[current_element_name]['upper_limits'].append(float(parts[4]) if parts[4] != 'None' else None)
-                                elif len(parts) == 4:  # Jeśli są 4 części, to oznacza, że mamy tylko jeden limit
-                                    element_data[current_element_name]['lower_limits'].append(float(parts[3]) if parts[3] != 'None' else None)
-                                    element_data[current_element_name]['upper_limits'].append(None)  # Dodajemy None dla brakującego górnego limitu
+                                    element_data[current_element_name]['lower_limits'].append(float(parts[3]) if parts[3].replace('.', '').isdigit() else 'NONE')
+                                    element_data[current_element_name]['upper_limits'].append(float(parts[4]) if parts[4].replace('.', '').isdigit() else 'NONE')
+                                #elif len(parts) == 4:  # Jeśli są 4 części, to oznacza, że mamy tylko jeden limit
+                                    #element_data[current_element_name]['lower_limits'].append(float(parts[3]) if parts[3] != 'None' else None)
+                                    #element_data[current_element_name]['upper_limits'].append(None)  # Dodajemy None dla brakującego górnego limitu
 
                     if not element_found:
                         element_data[element_name]['names'].append(filename)
@@ -241,11 +262,11 @@ class Processing:
             plt.plot(data['names'], data['measured_values'], marker='o', markersize="1", linewidth="2", linestyle='-',
                      label='Measured Value')
 
-            if any(limit is not None for limit in data['lower_limits']):
+            if any(limit != 'NONE' for limit in data['lower_limits']):
                 plt.plot(data['names'], data['lower_limits'], marker='o', markersize="1", linewidth="2", linestyle='--',
                          label='Lower Limit')
 
-            if any(limit is not None for limit in data['upper_limits']):
+            if any(limit != 'NONE' for limit in data['upper_limits']):
                 plt.plot(data['names'], data['upper_limits'], marker='o', markersize="1", linewidth="2", linestyle='--',
                          label='Upper Limit')
 
@@ -283,9 +304,9 @@ class Processing:
     def check_values_within_range(self, folderpath,procentnumber):
         output_folder_path = folderpath
         procentnumber=int(procentnumber)
-        if not output_folder_path:
-            messagebox.showwarning("Warning", "Please select an output folder.")
-            return
+        #if not output_folder_path:
+        #    messagebox.showwarning("Warning", "Please select an output folder.")
+        #    return
 
         results = []
 
@@ -296,21 +317,23 @@ class Processing:
             lower_limits = np.array(data['lower_limits'])
             upper_limits = np.array(data['upper_limits'])
 
+
             if any(np.isnan(measured_values)):
                 messagebox.showwarning("Warning",f"No measured values found for element '{element_name}'. Skipping checking.")
                 continue
 
             percent_change = procentnumber / 100
-            lower_limit_range_1 = percent_change * (upper_limits - lower_limits)
-            range_1_indices = \
-                np.where((measured_values >= lower_limits) & (measured_values <= lower_limits + lower_limit_range_1))[0]
-
-            upper_limit_range_2 = percent_change * (upper_limits - lower_limits)
-            range_2_indices = \
-                np.where((measured_values >= upper_limits - upper_limit_range_2) & (measured_values <= upper_limits))[0]
-
-            if range_1_indices.size > 0 or range_2_indices.size > 0:
-                results.append(element_name)
+            if 'NONE' in lower_limits or 'NONE' in upper_limits:
+                pass
+            else:
+                lower_limit_range_1 = percent_change * (upper_limits - lower_limits)
+                range_1_indices = \
+                    np.where((measured_values >= lower_limits) & (measured_values <= lower_limits + lower_limit_range_1))[0]
+                upper_limit_range_2 = percent_change * (upper_limits - lower_limits)
+                range_2_indices = \
+                    np.where((measured_values >= upper_limits - upper_limit_range_2) & (measured_values <= upper_limits))[0]
+                if range_1_indices.size > 0 or range_2_indices.size > 0:
+                    results.append(element_name)
             if int(len(results))>=10:
                 results.append('+ others')
                 break
